@@ -13,39 +13,40 @@ module.exports = function (RED) {
 
     node.on("input", function (msg) {
       calendarId = msg.calendarId ? msg.calendarId : calendarId;
-      n.tittle = msg.tittle ? msg.tittle : n.tittle;
-      n.description = msg.description ? msg.description : n.description;
-      n.location = msg.location ? msg.location : n.location;
-      n.arrAttend = msg.arrAttend ? msg.arrAttend : n.arrAttend;
+      var title = msg.title ? msg.title : n.title;
+      var description = msg.description ? msg.description : n.description;
+      var location = msg.location ? msg.location : n.location;
 
       var timeStart = msg.start ? msg.start : n.time.split(" - ")[0];
       var timeEnd = msg.end ? msg.end : n.time.split(" - ")[1];
 
-      var arrAttend = [];
-      if (n.attend > 0) {
-        for (let index = 1; index < parseInt(n.attend) + 1; index++) {
-          if (n["email" + index] || n["name" + index]) {
-            if (validateEmail(n["email" + index])) {
-              arrAttend.push({
-                email: n["email" + index] || "",
-                displayName: n["name" + index] || "",
-              });
-            }
+      // Use a new variable for attendees, prioritize msg.arrAttend if it exists
+      var attendees = Array.isArray(msg.arrAttend) ? msg.arrAttend : [];
+
+      // Only process node configuration attendees if msg.arrAttend is not provided
+      if (attendees.length === 0 && n.attend > 0) {
+        for (let index = 1; index <= parseInt(n.attend); index++) {
+          if (n["email" + index] && validateEmail(n["email" + index])) {
+            attendees.push({
+              email: n["email" + index],
+              displayName: n["name" + index] || "",
+            });
           }
         }
       }
 
-      var api = "https://www.googleapis.com/calendar/v3/calendars/";
-      var newObj = {
-        summary: n.tittle,
-        description: n.description,
-        location: n.location,
-        start: { dateTime: new Date(timeStart) },
-        end: { dateTime: new Date(timeEnd) },
-        attendees: arrAttend,
+      var event = {
+        summary: title,
+        description: description,
+        location: location,
+        start: { dateTime: new Date(timeStart).toISOString() },
+        end: { dateTime: new Date(timeEnd).toISOString() },
+        attendees: attendees,
       };
-
-      var linkUrl = api + encodeURIComponent(calendarId) + "/events";
+      var linkUrl =
+        "https://www.googleapis.com/calendar/v3/calendars/" +
+        encodeURIComponent(calendarId) +
+        "/events?sendUpdates=all";
       var opts = {
         method: "POST",
         url: linkUrl,
@@ -53,7 +54,7 @@ module.exports = function (RED) {
           "Content-Type": "application/json",
           Authorization: "Bearer " + node.google.credentials.accessToken,
         },
-        body: JSON.stringify(newObj),
+        body: JSON.stringify(event),
       };
       request(opts, function (error, response, body) {
         if (error) {
@@ -65,12 +66,7 @@ module.exports = function (RED) {
           });
           return;
         }
-        if (JSON.parse(body).kind == "calendar#event") {
-          msg.payload = "Successfully add event to " + calendarId;
-        } else {
-          msg.payload = "Fail";
-        }
-
+        msg.payload = JSON.parse(body);
         node.send(msg);
       });
     });
